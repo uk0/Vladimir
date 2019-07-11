@@ -1,0 +1,12 @@
+[Pulse]
+#kafka_addr="kafka.wd.cn:9092"
+kafka_addr="127.0.0.1:9092"
+log_path="./logs/pulse.log"
+log_level="info"
+#etcd_address="etcd.we.cn:23791"
+etcd_address="127.0.0.1:2379"
+kafka_thread=4
+etcd_timeout=5000
+etcd_watch_key="/pulse/%s/log_config"
+etcd_health_key="/pulse/%s/health"
+start_type="http"

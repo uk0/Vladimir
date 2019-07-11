@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Pulse 数据采集控制台</title>
+    <link rel="stylesheet" href="./bootstrap/css/bootstrap/bootstrap.css"/>
+    <link rel="stylesheet" href="./bootstrap-table/bootstrap-table.css"/>
+
+    <script src="./jquery/jquery.min.js"></script>
+    <script src="./bootstrap/js/bootstrap.js"></script>
+    <script src="./bootstrap-table/bootstrap-table.js"></script>
+
+
+    <script>
+        var ws;
+        // 避免重复连接
+        var lockReconnect = false;
+        var wsUrl = "ws://localhost:3000/watcher";
+        var wsTools = {
+            lockReconnect: false,
+            sendMsg: function () {
+                wsToolsEngine.createWebSocket(wsUrl)
+            },
+        };
+        // release
+        var wsToolsEngine = {
+            getIp:function(value){
+                return value.split("/")[2];
+            },
+            operateFormatter: function (value, row, index) {
+                return [
+                    '<button type="button" class="add btn btn-success">同机器上添加采集任务</button>',
+                    '<button type="button" class="stop btn btn-success">停止</button>',
+                    '<button type="button" class="restart btn btn-success">开启</button>',
+                ].join('|');
+            },
+            createWebSocket: function (url) {
+                try {
+                    ws = new WebSocket(url);
+                    wsToolsEngine.initEventHandle();
+                } catch (e) {
+                    // 重新连接
+                    wsToolsEngine.reconnect(url);
+                }
+            },
+            appendData: function (data) {
+                setTimeout(function () {
+                    $('#reportTable').bootstrapTable('load', JSON.parse(data));//刷新
+                }, 0);
+            },
+            initEventHandle: function () {
+                ws.onclose = function () {
+                    console.info("连接关闭");
+                    wsToolsEngine.reconnect(wsUrl);
+                };
+                ws.onerror = function () {
+                    console.info("传输异常");
+                    wsToolsEngine.reconnect(wsUrl);
+                };
+                ws.onopen = function () {
+                    // 心跳检测重置
+                    wsToolsEngine.heartCheck.reset().start();
+                };
+
+                ws.onmessage = function (event) {
+                    wsToolsEngine.appendData(event.data);
+                    // 如果获取到消息，心跳检测重置
+                    wsToolsEngine.heartCheck.reset().start();
+                }
+            },
+
+            reconnect: function (url) {
+                if (lockReconnect) return;
+                lockReconnect = true;
+                // 没连接上会一直重连，设置延迟避免请求过多
+                setTimeout(function () {
+                    console.info("尝试重连..." + new Date().toLocaleString());
+                    wsToolsEngine.createWebSocket(url);
+                    lockReconnect = false;
+                }, 500);
+            },
+            heartCheck: {
+                timeout: 5000,
+                timeoutObj: null,
+                serverTimeoutObj: null,
+                reset: function () {
+                    clearTimeout(this.timeoutObj);
+                    clearTimeout(this.serverTimeoutObj);
+                    return this;
+                },
+                start: function () {
+                    var self = this;
+                    this.timeoutObj = setTimeout(function () {
+                        // 这里发送一个心跳，后端收到后，返回一个心跳消息，
+                        //onmessage 拿到返回的心跳就说明连接正常
+                        ws.send("ping");
+                        console.info("客户端发送心跳：" + new Date().toLocaleString());
+                        self.serverTimeoutObj = setTimeout(function () {
+                            // 如果超过一定时间还没重置，说明后端主动断开了
+                            ws.close();
+                            // 如果 onclose 会执行 reconnect，我们执行 ws.close() 就行了.
+                            // 如果直接执行 reconnect 会触发 onclose 导致重连两次
+                        }, self.timeout)
+                    }, this.timeout)
+                }
+            }
+        }
+        $(function () {
+            window.operateEvents = {
+                'click .add': function (e, value, row, index) {
+                    $('#myModal').modal('show')
+                    alert(JSON.stringify(row))
+                },
+                'click .restart': function (e, value, row, index) {
+                    $('#myModal').modal('show')
+                },
+                'click .stop': function (e, value, row, index) {
+                },
+            }
+
+
+            wsTools.sendMsg();
+            $('#reportTable').bootstrapTable({
+                method: 'get',
+                cache: false,
+                height: 1000,
+                showExport: true,
+                exportTypes: ['csv', 'xml'],
+                columns: [
+                    {field: "Offset", title: "偏移量", align: "center", valign: "middle", sortable: "true"},
+                    {field: "Key", title: "Etcd", align: "center", valign: "middle", sortable: "true"},
+                    {field: "Time", title: "最后一次心跳时间", align: "center", valign: "middle", sortable: "true"},
+                    {field: "FilePatch", title: "采集路径", align: "center", valign: "middle", sortable: "true"},
+                    {field: "Topic", title: "MqTopic", align: "center", valign: "middle", sortable: "true"},
+                    {
+                        field: 'Key',
+                        title: 'IP',
+                        formatter: wsToolsEngine.getIp
+                    },
+                    {
+                        field: 'operate',
+                        title: '操作',
+                        align: 'center',
+                        events: "operateEvents",
+                        formatter: wsToolsEngine.operateFormatter
+                    }
+                ],
+                data: [],
+                onPageChange: function (size, number) {
+                },
+                formatNoMatches: function () {
+                    return 'No DataSet';
+                }
+            });
+        })
+    </script>
+</head>
+<body>
+<table class="table table-dark" id="reportTable">
+
+</table>
+
+
+<!-- Modal -->
+<div class="modal fade bs-example-modal-lg" id="myModal" tabindex="-1" role="dialog" aria-labelledby="myModalLabel">
+    <div class="modal-dialog modal-lg" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <button type="button" class="close" data-dismiss="modal" aria-label="Close"><span aria-hidden="true">&times;</span>
+                </button>
+                <h4 class="modal-title" id="myModalLabel">创建作业</h4>
+            </div>
+            <div class="modal-body" id="modal-body">
+                <div class="input-group mb-5">
+                    <div class="input-group-prepend">
+                        <span class="input-group-text" id="input1">日志路径:</span>
+                    </div>
+                    <input type="text" class="form-control" placeholder="logpath" aria-label="logpath" aria-describedby="input1">
+                </div>
+                <div class="input-group mb-5">
+                    <div class="input-group-prepend">
+                        <span class="input-group-text" id="input2">Topic:</span>
+                    </div>
+                    <input type="text" class="form-control" placeholder="Topic" aria-label="Topic" aria-describedby="input2">
+                </div>
+                <div class="input-group mb-5">
+                    <div class="input-group-prepend">
+                        <span class="input-group-text" id="input3">Service:</span>
+                    </div>
+                    <input type="text" class="form-control" placeholder="logpath" aria-label="Service" aria-describedby="input3">
+                </div>
+
+
+            </div>
+            <div class="modal-footer" id="modal-foote">
+                <!--<button type="button" class="btn btn-default" onclick="wsTools.sendMsg()" >send</button>-->
+                <button type="button" class="btn btn-default" data-dismiss="modal" >关闭
+                </button>
+                <button type="button" class="btn btn-default" >清除</button>
+            </div>
+        </div>
+    </div>
+</div>
+</body>
+</html>
