@@ -21,7 +21,7 @@ var outTime int64 = 100;
 var start = 0;
 
 var (
-	HttpWatcher *WatchClient
+	xHttpWatcher *WatchClient
 )
 var WatchThreadNum = 1;
 
